@@ -47,12 +47,14 @@ steps:
 
         gcloud compute ssh deployer@${_VM_NAME} --zone ${_ZONE} --quiet --ssh-flag="-o ServerAliveInterval=30" --command "
           set -e
+          # Same checkout as the VM's startup script, so secrets and data carry over between deploys.
+          sudo mkdir -p /opt && cd /opt
           if [ -d CrimeAI ]; then
-            git -C CrimeAI fetch --quiet origin && git -C CrimeAI reset --hard --quiet origin/main
+            sudo git -C CrimeAI fetch --quiet origin && sudo git -C CrimeAI reset --hard --quiet origin/main
           else
-            git clone --quiet ${_REPO_URL} CrimeAI
+            sudo git clone --quiet ${_REPO_URL} CrimeAI
           fi
-          cd CrimeAI && GEMINI_API_KEY='${_GEMINI_API_KEY}' bash deploy/deploy.sh
+          cd /opt/CrimeAI && sudo GEMINI_API_KEY='${_GEMINI_API_KEY}' bash deploy/deploy.sh
         "
 
         ip=$$(gcloud compute instances describe ${_VM_NAME} --zone ${_ZONE} \

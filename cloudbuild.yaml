@@ -1,6 +1,7 @@
 # Cloud Build deploy: Cloud Build -> Triggers -> Connect this GitHub repo, event "Push to branch" main,
 # configuration "Cloud Build configuration file" (this file).
-# The trigger's service account needs the roles Compute Admin and Service Account User.
+# The trigger's service account needs the roles Compute Admin, Service Account User and
+# Compute OS Admin Login (organisations with "secure by default" policies require OS Login for SSH).
 # Optional: set _GEMINI_API_KEY in the trigger's substitution variables to turn on Gemini case briefs.
 #
 # The first build creates the VM and firewall, installs Docker and builds the stack (15-25 minutes);

@@ -90,7 +90,7 @@ Every push to `main` deploys the app to a Compute Engine VM through [`.github/wo
 
 Then run the workflow (Actions → Deploy to GCP → Run workflow, or push to `main`). The first run creates the VM (`e2-standard-4`, `asia-south1-a`) and firewall, installs Docker, builds the stack, loads the demo data and prints the live URL, `https://<external-ip>.sslip.io`, with a Let's Encrypt certificate. It takes 15–25 minutes; later runs only rebuild what changed. The demo login is printed in the workflow log.
 
-**Using Google Cloud Build instead:** in Cloud Build → Triggers, connect this repository with event "Push to branch" `main` and configuration file [`cloudbuild.yaml`](cloudbuild.yaml). Give the trigger's service account **Compute Admin** and **Service Account User**, and optionally set the substitution `_GEMINI_API_KEY`. It does the same as the workflow; use one or the other.
+**Using Google Cloud Build instead:** in Cloud Build → Triggers, connect this repository with event "Push to branch" `main` and configuration file [`cloudbuild.yaml`](cloudbuild.yaml). Give the trigger's service account **Compute Admin**, **Service Account User** and **Compute OS Admin Login**, and optionally set the substitution `_GEMINI_API_KEY`. It does the same as the workflow; use one or the other.
 
 The workflow runs [`deploy/deploy.sh`](deploy/deploy.sh) on the VM, which can also be run by hand on any Ubuntu server (`GEMINI_API_KEY=... bash deploy/deploy.sh`). The production stack (`crimeai/docker-compose.prod.yml`) runs Caddy with the built frontend, the API, a Celery worker and scheduler, PostgreSQL (PostGIS + pgvector) and Redis.
 

@@ -78,26 +78,19 @@ It prints `http://localhost:5173` and the demo login (`admin@crimeai.example`; t
 
 **Gemini (optional):** create `crimeai/backend/.env` with `GEMINI_API_KEY=your-key` from [Google AI Studio](https://aistudio.google.com/apikey) and run `start.cmd` again. Without a key the feature is hidden and nothing leaves the server.
 
-## Deploy on Google Cloud
+## Deploy on Google Cloud (GitHub Actions)
 
-One VM runs the whole stack with HTTPS. On your machine:
+Every push to `main` deploys the app to a Compute Engine VM through [`.github/workflows/deploy-gcp.yml`](.github/workflows/deploy-gcp.yml). One-time setup in **Settings → Secrets and variables → Actions**:
 
-```bash
-gcloud compute instances create crimeai --zone=asia-south1-a --machine-type=e2-standard-4 \
-  --image-family=ubuntu-2204-lts --image-project=ubuntu-os-cloud --boot-disk-size=60GB \
-  --tags=http-server,https-server
-gcloud compute firewall-rules create crimeai-web --allow=tcp:80,tcp:443 --target-tags=http-server,https-server
-gcloud compute ssh crimeai --zone=asia-south1-a
-```
+| Name | Type | Value |
+|---|---|---|
+| `GCP_PROJECT_ID` | Variable | Your GCP project id (deploys are skipped until it is set) |
+| `GCP_SA_KEY` | Secret | JSON key of a service account with **Compute Admin** and **Service Account User** roles |
+| `GEMINI_API_KEY` | Secret | Optional: turns on Gemini case briefs |
 
-On the VM:
+Then run the workflow (Actions → Deploy to GCP → Run workflow, or push to `main`). The first run creates the VM (`e2-standard-4`, `asia-south1-a`) and firewall, installs Docker, builds the stack, loads the demo data and prints the live URL, `https://<external-ip>.sslip.io`, with a Let's Encrypt certificate. It takes 15–25 minutes; later runs only rebuild what changed. The demo login is printed in the workflow log.
 
-```bash
-git clone https://github.com/RudreshRajvansh/CrimeAI.git && cd CrimeAI
-GEMINI_API_KEY=your-key bash deploy/deploy.sh
-```
-
-The script installs Docker, generates secrets, serves the app at `https://<external-ip>.sslip.io` with a Let's Encrypt certificate (or set `DOMAIN=your.domain`), loads the demo data and prints the URL and login. The first build takes 10–20 minutes. The production stack (`crimeai/docker-compose.prod.yml`) runs Caddy with the built frontend, the API, a Celery worker and scheduler, PostgreSQL (PostGIS + pgvector) and Redis.
+The workflow runs [`deploy/deploy.sh`](deploy/deploy.sh) on the VM, which can also be run by hand on any Ubuntu server (`GEMINI_API_KEY=... bash deploy/deploy.sh`). The production stack (`crimeai/docker-compose.prod.yml`) runs Caddy with the built frontend, the API, a Celery worker and scheduler, PostgreSQL (PostGIS + pgvector) and Redis.
 
 ## Privacy, law and safety
 

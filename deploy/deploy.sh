@@ -24,11 +24,12 @@ if [ "$(swapon --show | wc -l)" -eq 0 ]; then
   sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 fi
 
+ip=$(curl -fsS -H "Metadata-Flavor: Google" \
+  http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip 2>/dev/null \
+  || curl -fsS https://api.ipify.org || true)
+
 if [ ! -f .env ]; then
   say "Writing secrets to crimeai/.env"
-  ip=$(curl -fsS -H "Metadata-Flavor: Google" \
-    http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip 2>/dev/null \
-    || curl -fsS https://api.ipify.org)
   rnd() { openssl rand -hex 32; }
   umask 077
   cat > .env <<ENV
@@ -41,6 +42,12 @@ DEMO_PASSWORD=Demo-$(openssl rand -hex 6)
 ENV
 fi
 set -a; . ./.env; set +a
+# A VM restarted without a reserved IP comes back on a new address: follow it unless a real domain was set.
+if [ -n "$ip" ] && [[ "$DOMAIN" == *.sslip.io ]] && [ "$DOMAIN" != "${ip//./-}.sslip.io" ]; then
+  DOMAIN="${ip//./-}.sslip.io"
+  sed -i "s/^DOMAIN=.*/DOMAIN=$DOMAIN/" .env
+  say "New IP: serving at https://$DOMAIN"
+fi
 if [ -n "${GEMINI_API_KEY:-}" ]; then
   (umask 077; printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > backend/.env)
 fi

@@ -12,6 +12,7 @@ until GEMINI_API_KEY is set; the endpoints that call it audit every request.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 from datetime import UTC, date, datetime
@@ -209,3 +210,52 @@ async def case_brief(
         "suggested_sections": _check_sections(data.get("suggested_sections") or [], text, incident_date, code),
         "missing": _strings(data.get("missing"), 5),
     }
+
+
+_OCR_TYPES = {"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif", "application/pdf"}
+_OCR_INSTRUCTION = (
+    "You are an OCR engine for Indian police First Information Report (FIR) forms. Transcribe ALL text in the "
+    "image exactly as written, printed and handwritten, in its original script and language (Hindi, Marathi, "
+    "Bengali, Tamil, English or any other). Do not translate, summarise, correct or add anything. Keep the reading "
+    "order of the form: field label, then the value written next to it, one field per line. Write an illegible "
+    "word as [?]. Return only the transcription."
+)
+
+
+async def read_document(data: bytes, mime_type: str, *, client: httpx.AsyncClient | None = None) -> str:
+    """Transcribe a scanned or photographed FIR, handwriting included, in its own script."""
+    if not enabled():
+        raise ExternalServiceError("Gemini is not configured: set GEMINI_API_KEY")
+    if mime_type not in _OCR_TYPES:
+        raise ExternalServiceError(f"Unsupported file type for handwriting OCR: {mime_type}")
+    payload = {
+        "systemInstruction": {"parts": [{"text": _OCR_INSTRUCTION}]},
+        "contents": [{"role": "user", "parts": [
+            {"inlineData": {"mimeType": mime_type, "data": base64.b64encode(data).decode()}},
+            {"text": "Transcribe this FIR."},
+        ]}],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 8192},
+    }
+    owned = client is None
+    client = client or httpx.AsyncClient(timeout=max(settings.GEMINI_TIMEOUT_SECONDS, 90.0))
+    try:
+        response = await client.post(_ENDPOINT.format(model=settings.GEMINI_MODEL), json=payload,
+                                      headers={"x-goog-api-key": settings.GEMINI_API_KEY})
+    except httpx.HTTPError as exc:
+        raise ExternalServiceError("Handwriting OCR could not be reached", detail=type(exc).__name__) from exc
+    finally:
+        if owned:
+            await client.aclose()
+    if response.status_code != 200:
+        try:
+            reason = response.json().get("error", {}).get("message")
+        except ValueError:
+            reason = None
+        raise ExternalServiceError(f"Handwriting OCR returned HTTP {response.status_code}", detail=reason)
+    candidates = response.json().get("candidates") or []
+    parts = (candidates[0].get("content") or {}).get("parts") or [] if candidates else []
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+    text = _FENCE.sub("", text).strip()
+    if not text:
+        raise ExternalServiceError("No text could be read from this image")
+    return text

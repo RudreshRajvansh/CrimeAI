@@ -3,13 +3,14 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.dependencies.auth import Admin, Analyst, Officer, Viewer
+from app.api.v1.uploads import read_capped
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.db.redis import get_redis
@@ -74,6 +75,19 @@ async def gemini_preview(request: Request, body: GeminiBriefRequest, user: Offic
                        metadata={"model": brief["model"], "chars_sent": brief["chars_sent"],
                                  "redactions": brief["redactions"]})
     return brief
+
+
+@router.post("/handwriting-ocr", summary="Read a scanned or photographed FIR, handwriting included (audited)")
+@limiter.limit("20/minute")
+async def handwriting_ocr(request: Request, user: Officer, db: DbDep, file: UploadFile = File(...)) -> dict:
+    if not gemini.enabled():
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Handwriting OCR is not configured on this server")
+    data = await read_capped(file, 10 * 1024 * 1024)
+    mime = (file.content_type or "").lower()
+    text = await gemini.read_document(data, mime)
+    await record_audit(db, request, user, action="nlp.handwriting_ocr", resource_type="fir_scan",
+                       metadata={"bytes": len(data), "type": mime, "chars": len(text)})
+    return {"text": text, "chars": len(text)}
 
 
 @router.post("/similarity", summary="Semantic search over crime narratives (pgvector)")

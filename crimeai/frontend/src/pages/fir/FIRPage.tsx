@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, Send, RefreshCw, CheckCircle, AlertCircle, Clock, Upload, Scale, ShieldCheck, ScanLine, Sparkles } from 'lucide-react'
+import { FileText, Send, RefreshCw, CheckCircle, AlertCircle, Clock, Upload, Scale, ShieldCheck, ScanLine, Sparkles, PenLine } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { firApi, getErrorMessage } from '@/services'
@@ -23,6 +23,22 @@ export default function FIRPage() {
   const [analysisResult, setAnalysisResult] = useState<ExtractedEntities | null>(null)
   const [geminiResult, setGeminiResult] = useState<GeminiBrief | null>(null)
   const gemini = useGeminiStatus()
+  const [scanUrl, setScanUrl] = useState<string | null>(null)
+  const ocrMutation = useMutation({
+    mutationFn: (f: File) => firApi.handwritingOcr(f),
+    onSuccess: (data) => {
+      setRawText(data.text)
+      setFile(null)
+      toast.success(`Handwriting read: ${data.chars} characters`)
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  })
+  const scanHandwriting = (f: File | undefined) => {
+    if (!f) return
+    if (scanUrl) URL.revokeObjectURL(scanUrl)
+    setScanUrl(f.type.startsWith('image/') ? URL.createObjectURL(f) : null)
+    ocrMutation.mutate(f)
+  }
   const qc = useQueryClient()
 
   const { data: firList, isLoading } = useQuery({
@@ -138,6 +154,20 @@ export default function FIRPage() {
                 />
               </label>
             </div>
+
+            {gemini.data?.enabled && (
+              <div className="rounded-lg border border-dashed border-accent-purple/50 bg-accent-purple/5 p-3">
+                <label className={cn('flex cursor-pointer items-center justify-center gap-2 text-xs font-semibold text-accent-purple', ocrMutation.isPending && 'pointer-events-none opacity-70')}>
+                  <PenLine size={14} className={cn(ocrMutation.isPending && 'animate-pulse')} />
+                  {ocrMutation.isPending ? 'Reading handwriting…' : 'Scan handwritten FIR (photo or PDF)'}
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/heic,application/pdf" className="hidden"
+                         onChange={(e) => { scanHandwriting(e.target.files?.[0]); e.target.value = '' }} />
+                </label>
+                {scanUrl && (
+                  <img src={scanUrl} alt="Scanned FIR" className={cn('mt-3 max-h-64 w-full rounded-md border border-border-subtle bg-white object-contain', ocrMutation.isPending && 'animate-pulse')} />
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-text-secondary mb-1.5">

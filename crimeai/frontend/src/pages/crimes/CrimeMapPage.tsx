@@ -77,9 +77,9 @@ export default function CrimeMapPage() {
   const isLoading = heatLoading || crimesLoading
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full flex-col md:flex-row">
       {/* Map container */}
-      <div className="relative flex-1">
+      <div className="relative flex-1 min-h-[45vh]">
         {isLoading && (
           <div className="absolute inset-0 z-10 bg-bg-primary/60 flex items-center justify-center">
             <PageLoader label="Loading map data…" />
@@ -165,7 +165,7 @@ export default function CrimeMapPage() {
 
       {/* Side panel: one case and what it matches */}
       {focusId && focus && (
-        <div className="w-80 border-l border-border-default bg-bg-secondary flex flex-col flex-shrink-0">
+        <div className="w-full md:w-80 max-h-[50vh] md:max-h-none border-t md:border-t-0 md:border-l border-border-default bg-bg-secondary flex flex-col flex-shrink-0">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
             <div className="flex items-center gap-2">
               <Link2 size={14} className="text-accent-purple" />

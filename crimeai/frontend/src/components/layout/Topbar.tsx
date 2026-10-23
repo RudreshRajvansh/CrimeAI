@@ -1,9 +1,10 @@
-import { Bell, LogOut, Moon, Sun, User } from 'lucide-react'
+import { ArrowLeft, Bell, LogOut, Moon, Sun, User } from 'lucide-react'
 import { useAlertsStore } from '@/store/alerts'
 import { useAuthStore } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
 import { useLogout } from '@/hooks/useAuth'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 interface TopbarProps {
   title: string
@@ -18,12 +19,19 @@ export default function Topbar({ title, subtitle, actions }: TopbarProps) {
   const toggleTheme = useUIStore((s) => s.toggleTheme)
   const user = useAuthStore((s) => s.user)
   const logout = useLogout()
+  const mobile = useIsMobile()
+  const { pathname } = useLocation()
 
   return (
-    <header className="flex items-center justify-between px-5 py-3 border-b border-border-subtle bg-bg-primary flex-shrink-0">
-      <div>
-        <h1 className="text-sm font-semibold text-text-primary">{title}</h1>
-        {subtitle && <p className="text-2xs text-text-muted mt-0.5">{subtitle}</p>}
+    <header className="flex items-center justify-between gap-2 px-3 sm:px-5 py-3 border-b border-border-subtle bg-bg-primary flex-shrink-0">
+      <div className="flex items-center gap-2 min-w-0">
+        {mobile && pathname !== '/fir' && (
+          <Link to="/fir" className="btn-ghost p-1.5 rounded-full" aria-label="Back to FIR Analysis"><ArrowLeft size={16} /></Link>
+        )}
+        <div className="min-w-0">
+        <h1 className="text-sm font-semibold text-text-primary whitespace-nowrap">{title}</h1>
+        {subtitle && <p className="text-2xs text-text-muted mt-0.5 hidden sm:block">{subtitle}</p>}
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

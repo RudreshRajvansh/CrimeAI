@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, Send, RefreshCw, CheckCircle, AlertCircle, Clock, Upload, Scale, ShieldCheck, ScanLine, Sparkles, PenLine, Camera, Mic, Square } from 'lucide-react'
+import { FileText, Send, RefreshCw, CheckCircle, AlertCircle, Clock, Upload, Scale, ShieldCheck, ScanLine, Sparkles, PenLine, Camera } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { firApi, getErrorMessage } from '@/services'
@@ -11,7 +11,6 @@ import CameraScanDialog from '@/components/fir/CameraScanDialog'
 import RecordMatchPanel from '@/components/fir/RecordMatchPanel'
 import ContextPanel from '@/components/fir/ContextPanel'
 import CasePlacedCard from '@/components/fir/CasePlacedCard'
-import { DICTATION_LANGUAGES, useDictation } from '@/hooks/useDictation'
 import { useAuthStore } from '@/store/auth'
 import { timeAgo, cn } from '@/utils'
 import type { ExtractedEntities, GeminiBrief, LegalAnalysis, LinkCheck } from '@/types'
@@ -32,8 +31,6 @@ export default function FIRPage() {
   const [cameraOpen, setCameraOpen] = useState(false)
   const [tracked, setTracked] = useState<{ id: string; number: string } | null>(null)
   const [linkResult, setLinkResult] = useState<LinkCheck | null>(null)
-  const [dictLang, setDictLang] = useState<string>('hi-IN')
-  const dictation = useDictation((spoken) => setRawText((prev) => (prev ? `${prev.trimEnd()} ${spoken}` : spoken)))
 
   const linkMutation = useMutation({
     mutationFn: (text: string) => firApi.linkCheck(text),
@@ -115,7 +112,7 @@ export default function FIRPage() {
   })
 
   return (
-    <div className="p-5 space-y-4 animate-fade-in">
+    <div className="p-3 sm:p-5 space-y-4 animate-fade-in">
       {/* Tabs */}
       <div className="flex gap-1 bg-bg-secondary rounded-lg p-1 w-fit">
         {(canSubmit ? (['submit', 'list'] as const) : (['list'] as const)).map((tab) => (
@@ -223,33 +220,7 @@ export default function FIRPage() {
                 <label className="block text-xs font-medium text-text-secondary">
                   FIR Text {file ? '(ignored when a document is attached)' : '*'}
                 </label>
-                {dictation.supported && (
-                  <div className="flex items-center gap-1.5">
-                    <select
-                      className="input h-7 w-auto py-0 text-2xs"
-                      value={dictLang}
-                      onChange={(e) => setDictLang(e.target.value)}
-                      disabled={dictation.listening}
-                      aria-label="Dictation language"
-                    >
-                      {DICTATION_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => (dictation.listening ? dictation.stop() : dictation.start(dictLang))}
-                      className={cn('btn-secondary h-7 py-0 text-2xs', dictation.listening && 'border-severity-high text-severity-high')}
-                      title="Dictate the complaint in the chosen language"
-                    >
-                      {dictation.listening ? <><Square size={11} className="animate-pulse" /> Stop</> : <><Mic size={12} /> Speak FIR</>}
-                    </button>
-                  </div>
-                )}
               </div>
-              {(dictation.listening || dictation.error) && (
-                <p className={cn('mb-1.5 rounded bg-bg-tertiary px-2 py-1 text-2xs', dictation.error ? 'text-severity-high' : 'text-accent-blue')}>
-                  {dictation.error ?? (dictation.interim ? `Hearing: ${dictation.interim}` : 'Listening… speak now')}
-                </p>
-              )}
               <textarea
                 className="input min-h-48 resize-y font-mono text-xs leading-relaxed"
                 placeholder="Paste FIR content here… (minimum 20 characters)&#10;&#10;e.g. On 15/06/2024 at approximately 14:30 hours, the complainant Rajesh Kumar reported to Police Station Connaught Place that his motorcycle bearing registration number DL-01-AB-1234 was stolen…"
@@ -315,7 +286,7 @@ export default function FIRPage() {
             ) : (
               <EmptyState
                 title="No analysis yet"
-                description="Scan a paper FIR, speak one, or paste text and click 'Preview NLP'."
+                description="Scan a paper FIR, or paste text and click 'Preview NLP'."
               />
             )}
           </div>

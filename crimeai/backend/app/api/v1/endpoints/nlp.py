@@ -92,6 +92,19 @@ async def handwriting_ocr(request: Request, user: Officer, db: DbDep, file: Uplo
     return {"text": text, "chars": len(text)}
 
 
+@router.post("/transcribe", summary="Turn a spoken complaint, in any mix of Indian languages, into FIR text (audited)")
+@limiter.limit("20/minute")
+async def transcribe(request: Request, user: Officer, db: DbDep, file: UploadFile = File(...)) -> dict:
+    if not gemini.enabled():
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Speech input is not configured on this server")
+    data = await read_capped(file, 15 * 1024 * 1024)
+    result = await gemini.transcribe(data, file.content_type or "")
+    await record_audit(db, request, user, action="nlp.transcribe", resource_type="fir_audio",
+                       metadata={"bytes": len(data), "type": file.content_type, "chars": len(result["statement"]),
+                                 "languages": result["languages"]})
+    return result
+
+
 @router.post("/similarity", summary="Semantic search over crime narratives (pgvector)")
 @limiter.limit(settings.RATE_LIMIT_ML)
 async def find_similar(request: Request, body: SimilarityRequest, user: Analyst, db: DbDep, redis: RedisDep) -> dict:

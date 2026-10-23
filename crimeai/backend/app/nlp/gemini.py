@@ -410,3 +410,67 @@ def _coordinate(value: Any, low: float, high: float) -> float | None:
     except (TypeError, ValueError):
         return None
     return round(number, 5) if low <= number <= high else None
+
+
+_AUDIO_TYPES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
+                "audio/aac", "audio/flac", "audio/x-m4a", "audio/m4a"}
+_TRANSCRIBE_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "transcript": _STR,
+        "statement": _STR,
+        "languages": {"type": "ARRAY", "items": _STR},
+    },
+    "required": ["transcript", "statement", "languages"],
+}
+_TRANSCRIBE_INSTRUCTION = (
+    "You transcribe a complainant speaking their complaint to an Indian police officer. Speakers often mix "
+    "languages in one sentence (Hindi, Bengali, English, Marathi, Tamil or any other Indian language). "
+    "transcript: every word exactly as spoken, each word in the script of the language it was spoken in "
+    "(Hindi in Devanagari, Bengali in Bengali script, English in Latin), with punctuation; never translate. "
+    "statement: the same account written as a clean first-person complaint for the FIR, in the same languages and "
+    "scripts, keeping every fact (names, places, times, dates, amounts, vehicle, phone and account numbers digit "
+    "by digit) and dropping only fillers, repetitions and false starts. Add nothing that was not said. Write a "
+    "word you cannot make out as [?]. languages: the languages heard, in English."
+)
+
+
+async def transcribe(data: bytes, mime_type: str, *, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
+    """A spoken complaint, in any mix of Indian languages, as a verbatim transcript and a clean FIR statement."""
+    if not enabled():
+        raise ExternalServiceError("Gemini is not configured: set GEMINI_API_KEY")
+    mime = mime_type.split(";")[0].strip().lower()
+    if mime not in _AUDIO_TYPES:
+        raise ExternalServiceError(f"Unsupported audio type: {mime_type}")
+    payload = {
+        "systemInstruction": {"parts": [{"text": _TRANSCRIBE_INSTRUCTION}]},
+        "contents": [{"role": "user", "parts": [
+            {"inlineData": {"mimeType": mime, "data": base64.b64encode(data).decode()}},
+            {"text": "Transcribe this complaint."},
+        ]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": 8192,
+            "responseMimeType": "application/json",
+            "responseSchema": _TRANSCRIBE_SCHEMA,
+        },
+    }
+    owned = client is None
+    client = client or httpx.AsyncClient(timeout=max(settings.GEMINI_TIMEOUT_SECONDS, 90.0))
+    try:
+        response = await _send(client, payload, (settings.GEMINI_OCR_MODEL, settings.GEMINI_MODEL))
+    except httpx.HTTPError as exc:
+        raise ExternalServiceError("Speech reader could not be reached", detail=type(exc).__name__) from exc
+    finally:
+        if owned:
+            await client.aclose()
+    if response.status_code != 200:
+        raise ExternalServiceError(f"Speech reader returned HTTP {response.status_code}")
+    candidates = response.json().get("candidates") or []
+    parts = (candidates[0].get("content") or {}).get("parts") or [] if candidates else []
+    result = _parse("".join(p.get("text", "") for p in parts if not p.get("thought")))
+    transcript = str(result.get("transcript") or "").strip()
+    statement = str(result.get("statement") or "").strip() or transcript
+    if not statement:
+        raise ExternalServiceError("No speech could be made out in this recording")
+    return {"transcript": transcript, "statement": statement, "languages": _strings(result.get("languages"), 5)}

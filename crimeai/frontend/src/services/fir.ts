@@ -43,6 +43,14 @@ export const firApi = {
       .then((r) => r.data)
   },
 
+  transcribe: (audio: File) => {
+    const form = new FormData()
+    form.append('file', audio)
+    return api
+      .post<{ transcript: string; statement: string; languages: string[] }>('/nlp/transcribe', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 })
+      .then((r) => r.data)
+  },
+
   geminiPreview: (text: string, incident_date?: string) =>
     api.post<GeminiBrief>('/nlp/gemini-brief', { text, incident_date: incident_date || undefined }).then((r) => r.data),
 

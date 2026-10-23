@@ -138,3 +138,24 @@ async def test_a_bad_request_is_not_retried_on_other_keys(monkeypatch):
             await gemini.case_brief(FIR, AFTER_BNS, client=client)
 
     assert used == ["primary-key"]
+
+
+async def test_speech_is_sent_as_audio_and_comes_back_as_a_statement(key):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_reply({
+            "transcript": "उम्म मेरा फोन चोरी हो गया", "statement": "मेरा फोन चोरी हो गया।", "languages": ["Hindi"],
+        }))
+
+    async with _client(handler) as client:
+        result = await gemini.transcribe(b"audio-bytes", "audio/webm;codecs=opus", client=client)
+
+    assert seen["body"]["contents"][0]["parts"][0]["inlineData"]["mimeType"] == "audio/webm"
+    assert result == {"transcript": "उम्म मेरा फोन चोरी हो गया", "statement": "मेरा फोन चोरी हो गया।", "languages": ["Hindi"]}
+
+
+async def test_speech_rejects_files_that_are_not_audio(key):
+    with pytest.raises(ExternalServiceError):
+        await gemini.transcribe(b"x", "application/pdf")

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, Send, RefreshCw, CheckCircle, AlertCircle, Clock, Upload, Scale, ShieldCheck, ScanLine, Sparkles, PenLine, Camera } from 'lucide-react'
+import { FileText, Send, RefreshCw, CheckCircle, AlertCircle, Clock, Upload, Scale, ShieldCheck, ScanLine, Sparkles, PenLine, Camera, Mic, Square, Loader2 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { firApi, getErrorMessage } from '@/services'
@@ -11,6 +11,7 @@ import CameraScanDialog from '@/components/fir/CameraScanDialog'
 import RecordMatchPanel from '@/components/fir/RecordMatchPanel'
 import ContextPanel from '@/components/fir/ContextPanel'
 import CasePlacedCard from '@/components/fir/CasePlacedCard'
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder'
 import { useAuthStore } from '@/store/auth'
 import { timeAgo, cn } from '@/utils'
 import type { ExtractedEntities, GeminiBrief, LegalAnalysis, LinkCheck } from '@/types'
@@ -37,6 +38,19 @@ export default function FIRPage() {
     onSuccess: (data) => setLinkResult(data),
     onError: (err) => toast.error(getErrorMessage(err)),
   })
+
+  const speechMutation = useMutation({
+    mutationFn: (audio: File) => firApi.transcribe(audio),
+    onSuccess: (data) => {
+      const text = rawText.trim() ? `${rawText.trimEnd()}
+${data.statement}` : data.statement
+      setRawText(text)
+      toast.success(`Complaint heard${data.languages.length ? ` (${data.languages.join(', ')})` : ''}`)
+      analyseAll(text)
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  })
+  const voice = useVoiceRecorder((audio) => speechMutation.mutate(audio))
 
   const ocrMutation = useMutation({
     mutationFn: (f: File) => firApi.handwritingOcr(f),
@@ -220,7 +234,40 @@ export default function FIRPage() {
                 <label className="block text-xs font-medium text-text-secondary">
                   FIR Text {file ? '(ignored when a document is attached)' : '*'}
                 </label>
+                {voice.supported && gemini.data?.enabled && !voice.recording && (
+                  <button
+                    type="button"
+                    onClick={() => void voice.start()}
+                    disabled={speechMutation.isPending}
+                    className="btn-secondary h-7 py-0 text-2xs"
+                    title="Record the complainant in any language, or a mix of them"
+                  >
+                    {speechMutation.isPending
+                      ? <><Loader2 size={12} className="animate-spin" /> Understanding speech…</>
+                      : <><Mic size={12} /> Speak FIR</>}
+                  </button>
+                )}
               </div>
+              {voice.recording && (
+                <div className="mb-2 flex items-center gap-3 rounded-lg border border-severity-high/40 bg-severity-high-bg px-3 py-2">
+                  <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                    <span className="absolute inset-0 animate-ping rounded-full bg-severity-high opacity-75" />
+                    <span className="relative h-2.5 w-2.5 rounded-full bg-severity-high" />
+                  </span>
+                  <span className="font-mono text-xs text-severity-high">
+                    {String(Math.floor(voice.seconds / 60)).padStart(2, '0')}:{String(voice.seconds % 60).padStart(2, '0')}
+                  </span>
+                  <div className="flex h-6 flex-1 items-center gap-0.5" aria-hidden>
+                    {voice.levels.map((l, i) => (
+                      <span key={i} className="flex-1 rounded-full bg-severity-high transition-[height] duration-75" style={{ height: `${Math.max(12, l * 100)}%` }} />
+                    ))}
+                  </div>
+                  <button type="button" onClick={voice.stop} className="btn-secondary h-7 py-0 text-2xs">
+                    <Square size={11} /> Stop
+                  </button>
+                </div>
+              )}
+              {voice.error && <p className="mb-1.5 text-2xs text-severity-high">{voice.error}</p>}
               <textarea
                 className="input min-h-48 resize-y font-mono text-xs leading-relaxed"
                 placeholder="Paste FIR content here… (minimum 20 characters)&#10;&#10;e.g. On 15/06/2024 at approximately 14:30 hours, the complainant Rajesh Kumar reported to Police Station Connaught Place that his motorcycle bearing registration number DL-01-AB-1234 was stolen…"
@@ -286,7 +333,7 @@ export default function FIRPage() {
             ) : (
               <EmptyState
                 title="No analysis yet"
-                description="Scan a paper FIR, or paste text and click 'Preview NLP'."
+                description="Scan a paper FIR, speak one, or paste text and click 'Preview NLP'."
               />
             )}
           </div>

@@ -118,7 +118,7 @@ class MultilingualAnalysis:
 
 def normalise_digits(text: str) -> str:
     """Map every Unicode decimal digit to ASCII. One code point in, one out, so offsets are preserved."""
-    return "".join(str(unicodedata.decimal(ch)) if ch.isdigit() and not ch.isascii() else ch for ch in text)
+    return "".join(str(unicodedata.decimal(ch)) if ch.isdecimal() and not ch.isascii() else ch for ch in text)
 
 
 def script_profile(text: str) -> Counter[str]:

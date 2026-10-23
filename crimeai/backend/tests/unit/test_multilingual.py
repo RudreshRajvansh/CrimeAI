@@ -110,3 +110,8 @@ def test_terms_match_through_zero_width_joiners():
     highlights = analyse(text).highlights
     thumb = [h for h in highlights if h.gloss.startswith("thumb")]
     assert thumb and text[thumb[0].start:thumb[0].end] == thumb[0].text
+
+
+def test_superscripts_and_fractions_on_scanned_forms_are_left_alone():
+    # OCR of FIR forms yields "2½ km" and "m²": digits to Python's isdigit, but not decimal digits.
+    assert normalise_digits("২½ km, ৩² m, १२") == "2½ km, 3² m, 12"

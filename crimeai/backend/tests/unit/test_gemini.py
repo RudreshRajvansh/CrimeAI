@@ -159,3 +159,23 @@ async def test_speech_is_sent_as_audio_and_comes_back_as_a_statement(key):
 async def test_speech_rejects_files_that_are_not_audio(key):
     with pytest.raises(ExternalServiceError):
         await gemini.transcribe(b"x", "application/pdf")
+
+
+async def test_vertex_ai_answers_when_every_api_key_is_out_of_credit(monkeypatch):
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "spent-key")
+    monkeypatch.setattr(settings, "VERTEX_PROJECT", "demo-project")
+    monkeypatch.setattr(settings, "VERTEX_ACCESS_TOKEN", "vertex-token")
+    hosts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        if request.url.host == "generativelanguage.googleapis.com":
+            return httpx.Response(402, json={"error": {"message": "prepayment credits are depleted"}})
+        assert request.headers["authorization"] == "Bearer vertex-token"
+        assert "/projects/demo-project/locations/global/publishers/google/models/" in request.url.path
+        return httpx.Response(200, json=_reply(BRIEF))
+
+    async with _client(handler) as client:
+        brief = await gemini.case_brief(FIR, AFTER_BNS, client=client)
+
+    assert hosts == ["generativelanguage.googleapis.com", "aiplatform.googleapis.com"] and brief["summary"]

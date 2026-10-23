@@ -119,6 +119,11 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     # Reading handwriting needs the larger model: the lite one guesses at faint words.
     GEMINI_OCR_MODEL: str = "gemini-3.5-flash"
+    # Vertex AI is the fallback when every Gemini API key fails; billed to this Google Cloud project.
+    # On a Compute Engine VM the token comes from the metadata server; elsewhere set VERTEX_ACCESS_TOKEN.
+    VERTEX_PROJECT: str = ""
+    VERTEX_LOCATION: str = "global"
+    VERTEX_ACCESS_TOKEN: str = ""
     GEMINI_TIMEOUT_SECONDS: float = 30.0
 
     LOG_LEVEL: str = "INFO"

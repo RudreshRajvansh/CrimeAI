@@ -48,8 +48,12 @@ if [ -n "$ip" ] && [[ "$DOMAIN" == *.sslip.io ]] && [ "$DOMAIN" != "${ip//./-}.s
   sed -i "s/^DOMAIN=.*/DOMAIN=$DOMAIN/" .env
   say "New IP: serving at https://$DOMAIN"
 fi
-if [ -n "${GEMINI_API_KEY:-}" ]; then
-  (umask 077; printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > backend/.env)
+# On Google Cloud, Vertex AI backs up the Gemini API keys, paid from this project and authorised by the VM's
+# service account (needs the cloud-platform scope and roles/aiplatform.user).
+VERTEX_PROJECT=${VERTEX_PROJECT:-$(curl -sf -m 2 -H "Metadata-Flavor: Google" \
+  http://169.254.169.254/computeMetadata/v1/project/project-id || true)}
+if [ -n "${GEMINI_API_KEY:-}" ] || [ -n "$VERTEX_PROJECT" ]; then
+  (umask 077; printf 'GEMINI_API_KEY=%s\nVERTEX_PROJECT=%s\n' "${GEMINI_API_KEY:-}" "$VERTEX_PROJECT" > backend/.env)
 fi
 
 C="$DOCKER compose -f docker-compose.prod.yml"

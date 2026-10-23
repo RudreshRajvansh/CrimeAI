@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import time
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -71,27 +72,72 @@ def _keys() -> list[str]:
 
 
 def enabled() -> bool:
-    return bool(_keys())
+    return bool(_keys()) or bool(settings.VERTEX_PROJECT)
+
+
+_VERTEX_ENDPOINT = "https://{host}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent"
+_METADATA_SA_URL = "http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
+_vertex_token: dict[str, Any] = {"value": "", "expires": 0.0}
+
+
+async def _vertex_bearer(client: httpx.AsyncClient) -> str | None:
+    """An OAuth token for Vertex AI: set explicitly, or the VM service account's, cached until near expiry."""
+    if settings.VERTEX_ACCESS_TOKEN:
+        return settings.VERTEX_ACCESS_TOKEN
+    if _vertex_token["value"] and _vertex_token["expires"] > time.time() + 60:
+        return _vertex_token["value"]
+    try:
+        response = await client.get(_METADATA_SA_URL, headers={"Metadata-Flavor": "Google"}, timeout=3.0)
+        body = response.json() if response.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not body.get("access_token"):
+        return None
+    _vertex_token.update(value=body["access_token"], expires=time.time() + float(body.get("expires_in", 300)))
+    return _vertex_token["value"]
+
+
+async def _post_vertex(client: httpx.AsyncClient, model: str, payload: dict[str, Any]) -> httpx.Response | None:
+    token = await _vertex_bearer(client)
+    if token is None:
+        return None
+    location = settings.VERTEX_LOCATION
+    host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+    url = _VERTEX_ENDPOINT.format(host=host, project=settings.VERTEX_PROJECT, location=location, model=model)
+    return await client.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
 
 
 async def _send(client: httpx.AsyncClient, payload: dict[str, Any], models: tuple[str, ...] = ()) -> httpx.Response:
     """
-    POST with each key in turn, then each fallback model, until one answers; the caller sees the last failure.
+    For each model in order: every Gemini API key, then Vertex AI; the first answer that is not a quota, auth or
+    server failure wins. The caller sees the last failure when nothing answers.
     """
-    attempts = [(m, k) for m in (models or (settings.GEMINI_MODEL,)) for k in _keys()]
-    for i, (model, key) in enumerate(attempts):
-        url = _ENDPOINT.format(model=model)
-        last = i == len(attempts) - 1
+    # A key string is a Gemini API route; None is the Vertex AI route.
+    routes: list[str | None] = [*_keys(), *([None] if settings.VERTEX_PROJECT else [])]
+    attempts = [(model, route) for model in (models or (settings.GEMINI_MODEL,)) for route in routes]
+    last_response: httpx.Response | None = None
+    last_error: httpx.HTTPError | None = None
+    for model, key in attempts:
         try:
-            # In a header, not the URL: query strings end up in proxy and access logs.
-            response = await client.post(url, json=payload, headers={"x-goog-api-key": key})
-        except httpx.HTTPError:
-            if last:
-                raise
+            if key is None:
+                response = await _post_vertex(client, model, payload)
+                if response is None:
+                    continue
+            else:
+                # In a header, not the URL: query strings end up in proxy and access logs.
+                response = await client.post(_ENDPOINT.format(model=model), json=payload, headers={"x-goog-api-key": key})
+        except httpx.HTTPError as exc:
+            last_error = exc
             continue
-        if response.status_code not in _FAILOVER_STATUSES or last:
+        # A revoked or mistyped key answers 400 API_KEY_INVALID: that key is unusable, the request is not.
+        if response.status_code not in _FAILOVER_STATUSES and not (
+            response.status_code == 400 and "API_KEY_INVALID" in response.text
+        ):
             return response
-    raise httpx.HTTPError("no API key configured")
+        last_response = response
+    if last_response is not None:
+        return last_response
+    raise last_error or httpx.HTTPError("no API key or Vertex project configured")
 
 
 def _instruction(code: str) -> str:
@@ -453,6 +499,8 @@ async def transcribe(data: bytes, mime_type: str, *, client: httpx.AsyncClient |
             "maxOutputTokens": 8192,
             "responseMimeType": "application/json",
             "responseSchema": _TRANSCRIBE_SCHEMA,
+            # Speech needs listening, not reasoning: minimal thinking halves the wait with the same transcript.
+            "thinkingConfig": {"thinkingLevel": "minimal"},
         },
     }
     owned = client is None

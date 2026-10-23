@@ -1,5 +1,7 @@
 # CrimeAI
 
+© 2026 Rudresh Rajvansh and team. Licensed under [AGPL-3.0](LICENSE).
+
 **CCTNS remembers cases. CrimeAI connects them.**
 
 CrimeAI is an intelligence layer for Indian police stations. It reads FIRs in Indian languages, links cases that share a phone number, UPI ID, bank account or vehicle across stations, finds serial crimes by their method, forecasts risk for the next patrol shift, tracks the BNSS custody deadline for every accused, and simulates a gang's next move with and without police action. Identifiers are stored as keyed hashes and no face or biometric is ever used.

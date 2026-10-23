@@ -4,10 +4,12 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies.auth import Analyst, Officer
 from app.core.exceptions import ValidationError
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.services import entity_graph
 from app.services.audit_service import record_audit
@@ -38,6 +40,19 @@ async def graph_neighbourhood(
 @router.get("/search", summary="Find a vehicle number, phone number or UPI ID in the link graph")
 async def graph_search(user: Analyst, db: DbDep, q: str = Query(..., min_length=2, max_length=64)) -> list[dict]:
     return await entity_graph.search(db, q)
+
+
+class CheckRequest(BaseModel):
+    text: str = Field(..., min_length=10, max_length=10000)
+
+
+@router.post("/check", summary="Which phones, UPI IDs, accounts or vehicles in this text are already on record (read-only, audited)")
+@limiter.limit("30/minute")
+async def graph_check(request: Request, body: CheckRequest, user: Officer, db: DbDep) -> dict:
+    result = await entity_graph.check_text(db, body.text)
+    await record_audit(db, request, user, action="graph.check", resource_type="fir_text",
+                       metadata={"identifiers": result["identifiers"], "known": result["known"]})
+    return result
 
 
 @router.get(

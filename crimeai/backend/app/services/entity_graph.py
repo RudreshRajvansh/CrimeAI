@@ -34,6 +34,7 @@ from app.core.config import settings
 from app.models.alert import Alert
 from app.models.crime import Crime
 from app.models.entity import Entity, EntityMention
+from app.models.fir import FIRReport
 from app.nlp.multilingual import analyse
 
 LINKABLE_KINDS = ("vehicle", "phone", "upi", "account")
@@ -295,6 +296,54 @@ async def search(db: AsyncSession, query: str, limit: int = 12) -> list[dict[str
         )).order_by(Entity.case_count.desc()).limit(limit)
     )).scalars().all()
     return [_entity_node(e) for e in rows]
+
+
+async def check_text(db: AsyncSession, text: str, cases_per_identifier: int = 12) -> dict[str, Any]:
+    """
+    Read-only: which identifiers in an unsaved narrative are already on record, and in which cases.
+    Nothing is stored; this is the "have we seen this number before?" check run the moment an FIR is scanned.
+    """
+    analysis = analyse(text or "")
+    matches: list[dict[str, Any]] = []
+    for kind, key, label in dict.fromkeys(identifiers_in(text)):
+        entity = (await db.execute(
+            select(Entity).where(Entity.kind == kind, Entity.key == key)
+        )).scalar_one_or_none()
+        cases: list[dict[str, Any]] = []
+        if entity is not None:
+            rows = (await db.execute(
+                select(Crime.id, Crime.case_number, Crime.crime_type, Crime.district, Crime.occurred_at,
+                       FIRReport.language)
+                .join(EntityMention, EntityMention.crime_id == Crime.id)
+                .outerjoin(FIRReport, FIRReport.crime_id == Crime.id)
+                .where(EntityMention.entity_id == entity.id)
+                .order_by(Crime.occurred_at.desc())
+                .limit(cases_per_identifier)
+            )).all()
+            cases = [{
+                "id": str(r.id),
+                "case_number": r.case_number,
+                "crime_type": r.crime_type,
+                "district": r.district,
+                "occurred_at": r.occurred_at.isoformat() if r.occurred_at else None,
+                "language": r.language,
+            } for r in rows]
+        matches.append({
+            "kind": kind,
+            "label": label,
+            "entity_id": str(entity.id) if entity is not None else None,
+            "case_count": entity.case_count if entity is not None else 0,
+            "districts": sorted({c["district"] for c in cases if c["district"]}),
+            "cases": cases,
+        })
+    matches.sort(key=lambda m: m["case_count"], reverse=True)
+    return {
+        "language": analysis.language,
+        "language_name": analysis.language_name,
+        "identifiers": len(matches),
+        "known": sum(1 for m in matches if m["case_count"] > 0),
+        "matches": matches,
+    }
 
 
 async def entities_for_crime(db: AsyncSession, crime_id: uuid.UUID) -> list[dict[str, Any]]:

@@ -14,7 +14,8 @@ from app.core.exceptions import AlreadyExistsError, NLPServiceError, ValidationE
 from app.core.logging import get_logger
 from app.db.redis import CacheManager
 from app.models.fir import FIRReport
-from app.nlp.documents import SUPPORTED_TYPES, extract_text, sniff_content_type
+from app.nlp import gemini
+from app.nlp.documents import SUPPORTED_TYPES, ExtractedText, extract_text, sniff_content_type
 from app.nlp.parsers.fir_pipeline import process_fir_text
 from app.realtime.broker import publish_alert
 from app.repositories.fir_repository import FIRRepository
@@ -84,6 +85,12 @@ class NLPService:
             text = fir.raw_text
             if not text and fir.file_url:
                 extracted = await run_in_threadpool(extract_text, await load_document(fir.file_url), fir.file_type)
+                if extracted.needs_ocr and gemini.enabled():
+                    try:
+                        read = await gemini.read_document(await load_document(fir.file_url), fir.file_type)
+                        extracted = ExtractedText(read, "vision_ocr")
+                    except Exception as exc:
+                        logger.warning("fir_ocr_failed", fir_id=str(fir_id), error=type(exc).__name__)
                 if extracted.needs_ocr:
                     await self.firs.fail(fir_id, "Document has no text layer; queued for OCR", status="awaiting_ocr")
                     await self.db.commit()
@@ -91,7 +98,7 @@ class NLPService:
                 text = extracted.text
                 fir.raw_text = text
             output = await run_in_threadpool(process_fir_text, text, fir.fir_number, fir.incident_date)
-            entities = output["entities"]
+            entities = await _with_context(output["entities"], text)
             await self.firs.complete(fir_id, entities, entities["overall_confidence"], output["redacted_text"])
             fir.language = entities["language"]["code"]
             alerts = []
@@ -114,15 +121,46 @@ class NLPService:
         await self.db.commit()
         return enqueue(_PROCESS_TASK, str(fir_id))
 
-    async def extract_inline(self, text: str) -> dict[str, Any]:
-        key = f"extract:{hashlib.sha256(text.encode()).hexdigest()}"
+    async def extract_inline(self, text: str, incident_date: datetime | None = None) -> dict[str, Any]:
+        # The date decides IPC vs BNS, so it is part of the cache key.
+        stamp = incident_date.date().isoformat() if incident_date else ""
+        key = f"extract:{hashlib.sha256(f'{stamp}|{text}'.encode()).hexdigest()}"
         if self.cache and (cached := await self.cache.get(key)):
             return {**cached, "from_cache": True}
         try:
-            output = await run_in_threadpool(process_fir_text, text)
+            output = await run_in_threadpool(process_fir_text, text, None, incident_date)
         except NLPServiceError:
             raise
-        result = {**output["entities"], "redacted_text": output["redacted_text"]}
+        result = {**await _with_context(output["entities"], text), "redacted_text": output["redacted_text"]}
         if self.cache:
             await self.cache.set(key, result, ttl=300)
         return result
+
+
+async def _with_context(entities: dict[str, Any], text: str) -> dict[str, Any]:
+    """
+    Add the contextual reading (roles, sequence, intent, severity) to the rule-based entities. When the rules
+    found no crime type, or are less sure than the contextual reading, the contextual reading decides it and the
+    rule-based answer is kept beside it. A confident reading (0.75 and up) also wins, because keywords miss
+    negation and sequence. Best effort: without the model the entities come back unchanged.
+    """
+    if not gemini.enabled() or len((text or "").strip()) < 20:
+        return entities
+    try:
+        context = await gemini.understand(text)
+    except Exception as exc:
+        logger.warning("fir_context_failed", error=type(exc).__name__)
+        return entities
+    merged = {**entities, "context": context}
+    rules_confidence = float(entities.get("crime_type_confidence") or 0)
+    if context["crime_type"] != "other" and (
+        not entities.get("crime_type") or context["confidence"] >= 0.75 or context["confidence"] > rules_confidence
+    ):
+        merged["rules_crime_type"] = entities.get("crime_type")
+        merged["crime_type"] = context["crime_type"]
+        merged["crime_type_confidence"] = context["confidence"]
+    merged["inferred_severity"] = max(int(entities.get("inferred_severity") or 0), context["severity"])
+    merged["has_weapon"] = bool(entities.get("has_weapon")) or bool(context["weapons"])
+    merged["has_injury"] = bool(entities.get("has_injury")) or context["injury"]
+    merged["weapons"] = list(dict.fromkeys([*(entities.get("weapons") or []), *context["weapons"]]))
+    return merged

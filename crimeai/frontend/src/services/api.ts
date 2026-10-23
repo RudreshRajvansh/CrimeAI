@@ -61,7 +61,20 @@ api.interceptors.response.use(
   },
 )
 
+// Messages from the language-model layer name the upstream provider; the UI shows the product's own wording.
+const PROVIDER_NAMES = /gemini|google|googleapis|generativelanguage|vertex/i
+
+export function brandSafe(message: string): string {
+  if (!PROVIDER_NAMES.test(message)) return message
+  if (/not configured/i.test(message)) return 'The CrimeAI language engine is switched off on this server.'
+  return 'The CrimeAI language engine is busy right now. Try again in a few seconds.'
+}
+
 export function getErrorMessage(err: unknown): string {
+  return brandSafe(rawErrorMessage(err))
+}
+
+function rawErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data as { message?: string; detail?: unknown } | undefined
     if (data?.message) return data.message

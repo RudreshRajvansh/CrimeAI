@@ -5,7 +5,9 @@ import { AlertTriangle, ArrowUpRight, FileImage, Languages, Scale, ShieldCheck, 
 import HighlightedText, { HighlightLegend } from '@/components/intel/HighlightedText'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { FirGeminiSection } from '@/components/fir/GeminiBrief'
+import ContextPanel from '@/components/fir/ContextPanel'
 import { firApi } from '@/services/fir'
+import { brandSafe } from '@/services/api'
 import { cn, crimeTypeLabel, formatDate } from '@/utils'
 
 const RTL_LANGUAGES = new Set(['ur', 'ks', 'sd'])
@@ -94,6 +96,8 @@ export default function FIRDetailPanel({ firId, onClose }: { firId: string; onCl
                 )}
               </section>
 
+              {entities?.context && <ContextPanel context={entities.context} rulesCrimeType={entities.rules_crime_type} />}
+
               {fir.text && <FirGeminiSection firId={fir.id} cached={entities?.gemini} />}
 
               {fir.has_document && (
@@ -155,7 +159,7 @@ export default function FIRDetailPanel({ firId, onClose }: { firId: string; onCl
                   Language detected with low confidence ({Math.round(entities.language.confidence * 100)}%). If this is a scan, the text may be misread; use Reprocess to read the original again.
                 </p>
               )}
-              {fir.nlp_error && <p className="text-xs text-severity-high">Processing note: {fir.nlp_error}</p>}
+              {fir.nlp_error && <p className="text-xs text-severity-high">Processing note: {brandSafe(fir.nlp_error)}</p>}
             </>
           )}
         </div>

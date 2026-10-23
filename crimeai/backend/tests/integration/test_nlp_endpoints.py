@@ -48,6 +48,20 @@ async def test_nlp_extract_returns_structure(
 
 
 @pytest.mark.asyncio
+async def test_nlp_extract_uses_the_incident_date_for_the_governing_code(
+    client: AsyncClient, auth_headers_police: dict
+) -> None:
+    before = await client.post("/api/v1/nlp/extract", json={"text": SAMPLE_FIR_TEXT, "incident_date": "2024-06-15"},
+                               headers=auth_headers_police)
+    after = await client.post("/api/v1/nlp/extract", json={"text": SAMPLE_FIR_TEXT, "incident_date": "2026-10-21"},
+                              headers=auth_headers_police)
+    assert before.status_code == after.status_code == 200, after.text
+    assert before.json()["legal"]["governing_code"] == "IPC" and not before.json()["legal"]["warnings"]
+    assert after.json()["legal"]["governing_code"] == "BNS"
+    assert any("IPC s.379" in w for w in after.json()["legal"]["warnings"])
+
+
+@pytest.mark.asyncio
 async def test_nlp_extract_detects_theft(
     client: AsyncClient, auth_headers_police: dict
 ) -> None:

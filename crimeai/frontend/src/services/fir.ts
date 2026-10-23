@@ -1,5 +1,5 @@
 import { api } from './api'
-import type { FIRReport, GeminiBrief } from '@/types'
+import type { FIRReport, GeminiBrief, LinkCheck } from '@/types'
 
 export const firApi = {
   list: (params?: Record<string, unknown>) =>
@@ -26,8 +26,8 @@ export const firApi = {
   reprocess: (id: string) =>
     api.post(`/fir/${id}/reprocess`).then((r) => r.data),
 
-  extract: (text: string) =>
-    api.post('/nlp/extract', { text }).then((r) => r.data),
+  extract: (text: string, incident_date?: string) =>
+    api.post('/nlp/extract', { text, incident_date: incident_date || undefined }).then((r) => r.data),
 
   geminiStatus: () =>
     api.get<{ enabled: boolean; model: string | null }>('/nlp/gemini').then((r) => r.data),
@@ -45,6 +45,9 @@ export const firApi = {
 
   geminiPreview: (text: string, incident_date?: string) =>
     api.post<GeminiBrief>('/nlp/gemini-brief', { text, incident_date: incident_date || undefined }).then((r) => r.data),
+
+  linkCheck: (text: string) =>
+    api.post<LinkCheck>('/graph/check', { text }).then((r) => r.data),
 
   classify: (text: string) =>
     api.post('/nlp/classify', { text }).then((r) => r.data),

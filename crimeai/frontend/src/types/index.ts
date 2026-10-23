@@ -232,8 +232,26 @@ export interface LegalAnalysis {
   disclaimer: string
 }
 
+export interface FirContext {
+  crime_type: string
+  confidence: number
+  severity: number
+  reasoning: string
+  people: { name: string; role: string; detail: string }[]
+  timeline: string[]
+  motive: string
+  relationship: string
+  premeditated: boolean
+  violence: boolean
+  injury: boolean
+  weapons: string[]
+  red_flags: string[]
+}
+
 export interface ExtractedEntities {
   gemini?: GeminiBrief
+  context?: FirContext
+  rules_crime_type?: string | null
   locations: string[]
   primary_location: string | null
   crime_type: string | null
@@ -711,4 +729,30 @@ export interface GeminiBrief {
   facts: { when: string; where: string; property: string; weapon: string }
   suggested_sections: GeminiSection[]
   missing: string[]
+}
+
+export interface LinkCheckCase {
+  id: string
+  case_number: string | null
+  crime_type: string
+  district: string | null
+  occurred_at: string | null
+  language: string | null
+}
+
+export interface LinkCheckMatch {
+  kind: 'vehicle' | 'phone' | 'upi' | 'account'
+  label: string
+  entity_id: string | null
+  case_count: number
+  districts: string[]
+  cases: LinkCheckCase[]
+}
+
+export interface LinkCheck {
+  language: string
+  language_name: string
+  identifiers: number
+  known: number
+  matches: LinkCheckMatch[]
 }

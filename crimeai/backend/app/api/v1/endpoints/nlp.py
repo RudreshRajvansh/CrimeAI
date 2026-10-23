@@ -1,6 +1,6 @@
 """Inline NLP utilities: entity extraction, classification, semantic search, legal section mapping."""
 
-from datetime import date
+from datetime import UTC, date, datetime, time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -31,6 +31,7 @@ RedisDep = Annotated[Redis, Depends(get_redis)]
 
 class ExtractRequest(BaseModel):
     text: str = Field(..., min_length=20, max_length=10000)
+    incident_date: date | None = None
 
 
 class GeminiBriefRequest(BaseModel):
@@ -57,7 +58,8 @@ class LegalSectionsRequest(BaseModel):
 @router.post("/extract", summary="Extract entities, legal sections and PII-redacted text")
 @limiter.limit(settings.RATE_LIMIT_ML)
 async def extract_entities(request: Request, body: ExtractRequest, user: Officer, db: DbDep, redis: RedisDep) -> dict:
-    return await NLPService(db, redis).extract_inline(body.text)
+    when = datetime.combine(body.incident_date, time(12), tzinfo=UTC) if body.incident_date else None
+    return await NLPService(db, redis).extract_inline(body.text, when)
 
 
 @router.get("/gemini", summary="Whether Gemini case briefs are switched on, and with which model")

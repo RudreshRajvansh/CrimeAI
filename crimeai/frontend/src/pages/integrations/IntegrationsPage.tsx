@@ -35,7 +35,7 @@ const NODES: Array<{ id: string; label: string; layer: Layer }> = [
   { id: 'parse', label: 'Schema mapper', layer: 'ing' },
   { id: 'ocr', label: 'OCR · HTR', layer: 'ing' },
   { id: 'nlp', label: 'NLP · 13 langs', layer: 'ing' },
-  { id: 'gemini', label: 'Gemini brief', layer: 'ing' },
+  { id: 'gemini', label: 'AI case brief', layer: 'ing' },
   { id: 'bns', label: 'IPC→BNS', layer: 'ing' },
   { id: 'geo', label: 'Geo-coder', layer: 'ing' },
   { id: 'hmac', label: 'HMAC vault', layer: 'ing' },

@@ -63,6 +63,7 @@ export default {
         'fade-up-d1':  'fadeUp 0.7s 0.1s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         'fade-up-d2':  'fadeUp 0.7s 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         'fade-up-d3':  'fadeUp 0.7s 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'scan-line':   'scanLine 2.4s ease-in-out infinite',
       },
       keyframes: {
         fadeIn:  { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
@@ -80,6 +81,7 @@ export default {
         },
         radarSpin: { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } },
         fadeUp: { '0%': { opacity: '0', transform: 'translateY(16px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+        scanLine: { '0%, 100%': { top: '0%' }, '50%': { top: 'calc(100% - 2px)' } },
       },
       boxShadow: {
         'inner-sm': 'inset 0 1px 2px rgba(0,0,0,0.4)',

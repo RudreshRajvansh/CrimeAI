@@ -11,7 +11,7 @@ const STATUS: Record<GeminiSection['status'], { label: string; cls: string; titl
   cited_in_fir: { label: 'in FIR', cls: 'bg-severity-low/15 text-severity-low', title: 'The FIR already cites this section' },
   new: { label: 'suggested', cls: 'bg-accent-blue/15 text-accent-blue', title: 'Not cited in the FIR: check before adding' },
   wrong_code: { label: 'old code', cls: 'bg-severity-medium/15 text-severity-medium', title: 'Uses the code that did not govern this incident date' },
-  title_differs: { label: 'check title', cls: 'bg-severity-high/15 text-severity-high', title: "Gemini's reason does not match this section's official title: it may have the wrong number" },
+  title_differs: { label: 'check title', cls: 'bg-severity-high/15 text-severity-high', title: "The AI's reason does not match this section's official title: it may have the wrong number" },
 }
 
 export function useGeminiStatus() {
@@ -34,10 +34,10 @@ export function FirGeminiSection({ firId, cached }: { firId: string; cached?: Ge
     <section>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-          <Sparkles size={12} className="text-accent-purple" /> Gemini brief
+          <Sparkles size={12} className="text-accent-purple" /> AI case brief
         </h3>
         {brief && status.data?.enabled && (
-          <button type="button" onClick={() => run.mutate(true)} disabled={run.isPending} className="btn-ghost py-0.5 text-2xs" title="Ask Gemini again">
+          <button type="button" onClick={() => run.mutate(true)} disabled={run.isPending} className="btn-ghost py-0.5 text-2xs" title="Generate the brief again">
             <RefreshCw size={11} className={cn(run.isPending && 'animate-spin')} /> Refresh
           </button>
         )}
@@ -46,7 +46,7 @@ export function FirGeminiSection({ firId, cached }: { firId: string; cached?: Ge
         <button type="button" onClick={() => run.mutate(false)} disabled={run.isPending}
                 className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-accent-purple/50 bg-accent-purple/5 py-3 text-xs font-medium text-accent-purple hover:bg-accent-purple/10">
           <Sparkles size={14} className={cn(run.isPending && 'animate-pulse')} />
-          {run.isPending ? 'Reading with Gemini…' : 'Translate & brief with Gemini'}
+          {run.isPending ? 'Reading the FIR…' : 'Translate & brief with CrimeAI'}
         </button>
       )}
     </section>
@@ -66,7 +66,7 @@ export function GeminiBriefCard({ brief }: { brief: GeminiBrief }) {
       <div className="flex flex-wrap items-center gap-2">
         {brief.offence && <span className="rounded-full bg-accent-purple/15 px-2 py-0.5 text-2xs font-semibold text-accent-purple">{brief.offence}</span>}
         <span className="ml-auto inline-flex items-center gap-1 text-2xs text-text-muted" title="Personal identifiers are masked before the text leaves the server">
-          <ShieldCheck size={11} className="text-severity-low" /> {masked} masked · {brief.model} · {timeAgo(brief.generated_at)}
+          <ShieldCheck size={11} className="text-severity-low" /> {masked} masked · CrimeAI engine · {timeAgo(brief.generated_at)}
         </span>
       </div>
 

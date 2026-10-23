@@ -25,6 +25,7 @@ from app.core.exceptions import ExternalServiceError
 from app.nlp.legal.bns_crosswalk import IPC_TO_BNS, analyse_sections, governing_code
 from app.nlp.multilingual import normalise_digits, normalise_for_legal
 from app.nlp.privacy.redaction import redact
+from app.schemas.crime import VALID_CRIME_TYPES
 
 _ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 _MAX_CHARS = 12_000
@@ -259,3 +260,103 @@ async def read_document(data: bytes, mime_type: str, *, client: httpx.AsyncClien
     if not text:
         raise ExternalServiceError("No text could be read from this image")
     return text
+
+
+# The crime types a case may carry; "other" last so it reads as the fallback.
+CRIME_TYPES = (*sorted(VALID_CRIME_TYPES - {"other"}), "other")
+_CONTEXT_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "crime_type": {"type": "STRING", "enum": list(CRIME_TYPES)},
+        "confidence": {"type": "NUMBER"},
+        "severity": {"type": "INTEGER"},
+        "reasoning": _STR,
+        "people": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": _STR,
+                    "role": {"type": "STRING", "enum": ["complainant", "victim", "accused", "suspect", "witness", "other"]},
+                    "detail": _STR,
+                },
+                "required": ["name", "role"],
+            },
+        },
+        "timeline": {"type": "ARRAY", "items": _STR},
+        "motive": _STR,
+        "relationship": _STR,
+        "premeditated": {"type": "BOOLEAN"},
+        "violence": {"type": "BOOLEAN"},
+        "injury": {"type": "BOOLEAN"},
+        "weapons": {"type": "ARRAY", "items": _STR},
+        "red_flags": {"type": "ARRAY", "items": _STR},
+    },
+    "required": ["crime_type", "confidence", "severity", "reasoning", "people", "timeline", "motive",
+                 "relationship", "premeditated", "violence", "injury", "weapons", "red_flags"],
+}
+_CONTEXT_INSTRUCTION = (
+    "You read Indian police FIRs in any Indian language and explain what happened, in English. Personal "
+    "identifiers are masked as [PHONE], [AADHAAR], [UPI], [BANK_ACCOUNT] and similar: keep the masks and never "
+    "guess them. Use only what the FIR states; add no facts and do not profile anyone. Pick the one crime_type "
+    "that best fits the whole narrative, reading negation, sequence and intent rather than keywords (online or "
+    "UPI cheating is cybercrime, rash driving is traffic_violation); confidence is 0 to 1. severity is 1 (minor) to 5 (grave, life threatening). "
+    "reasoning is one sentence under 30 words. people lists each named or described person with their role and "
+    "a short detail. timeline is up to six short events in order. motive and relationship (between accused and "
+    "victim) are short phrases, or an empty string when the FIR is silent. red_flags are up to four investigative "
+    "signals the text actually supports, such as an organised gang, a repeat pattern, an insider or a threat to a "
+    "witness."
+)
+
+
+async def understand(text: str, *, client: httpx.AsyncClient | None = None) -> dict[str, Any]:
+    """Contextual reading of an FIR: who did what to whom, in what order, why, and how serious it is."""
+    if not enabled():
+        raise ExternalServiceError("Gemini is not configured: set GEMINI_API_KEY")
+    redaction = redact(normalise_digits(text or ""))
+    payload = {
+        "systemInstruction": {"parts": [{"text": _CONTEXT_INSTRUCTION}]},
+        "contents": [{"role": "user", "parts": [{"text": f"FIR text:\n{redaction.text[:_MAX_CHARS]}"}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 2048,
+            "responseMimeType": "application/json",
+            "responseSchema": _CONTEXT_SCHEMA,
+        },
+    }
+    owned = client is None
+    client = client or httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS)
+    try:
+        response = await client.post(_ENDPOINT.format(model=settings.GEMINI_MODEL), json=payload,
+                                      headers={"x-goog-api-key": settings.GEMINI_API_KEY})
+    except httpx.HTTPError as exc:
+        raise ExternalServiceError("Context model could not be reached", detail=type(exc).__name__) from exc
+    finally:
+        if owned:
+            await client.aclose()
+    if response.status_code != 200:
+        raise ExternalServiceError(f"Context model returned HTTP {response.status_code}")
+    candidates = response.json().get("candidates") or []
+    parts = (candidates[0].get("content") or {}).get("parts") or [] if candidates else []
+    data = _parse("".join(p.get("text", "") for p in parts if not p.get("thought")))
+
+    people = [
+        {"name": str(p.get("name", "")).strip(), "role": str(p.get("role") or "other"),
+         "detail": str(p.get("detail") or "").strip()}
+        for p in (data.get("people") or []) if isinstance(p, dict) and str(p.get("name", "")).strip()
+    ][:8]
+    return {
+        "crime_type": data.get("crime_type") if data.get("crime_type") in CRIME_TYPES else "other",
+        "confidence": round(min(max(float(data.get("confidence") or 0), 0.0), 1.0), 2),
+        "severity": min(max(int(data.get("severity") or 1), 1), 5),
+        "reasoning": str(data.get("reasoning", "")).strip(),
+        "people": people,
+        "timeline": _strings(data.get("timeline"), 6),
+        "motive": str(data.get("motive") or "").strip(),
+        "relationship": str(data.get("relationship") or "").strip(),
+        "premeditated": bool(data.get("premeditated")),
+        "violence": bool(data.get("violence")),
+        "injury": bool(data.get("injury")),
+        "weapons": _strings(data.get("weapons"), 5),
+        "red_flags": _strings(data.get("red_flags"), 4),
+    }

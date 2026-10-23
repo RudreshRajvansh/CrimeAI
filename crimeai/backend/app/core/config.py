@@ -124,6 +124,8 @@ class Settings(BaseSettings):
     VERTEX_PROJECT: str = ""
     VERTEX_LOCATION: str = "global"
     VERTEX_ACCESS_TOKEN: str = ""
+    # Off Google Cloud: a gcloud application-default credentials file (authorized_user), refreshed as needed.
+    VERTEX_CREDENTIALS_FILE: str = ""
     GEMINI_TIMEOUT_SECONDS: float = 30.0
 
     LOG_LEVEL: str = "INFO"

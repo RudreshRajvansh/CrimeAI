@@ -17,6 +17,7 @@ import json
 import re
 import time
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -77,19 +78,31 @@ def enabled() -> bool:
 
 _VERTEX_ENDPOINT = "https://{host}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent"
 _METADATA_SA_URL = "http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token"
+_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - an endpoint, not a secret
 _vertex_token: dict[str, Any] = {"value": "", "expires": 0.0}
 
 
 async def _vertex_bearer(client: httpx.AsyncClient) -> str | None:
-    """An OAuth token for Vertex AI: set explicitly, or the VM service account's, cached until near expiry."""
+    """
+    An OAuth token for Vertex AI, cached until near expiry: set explicitly, refreshed from a gcloud credentials
+    file, or the VM service account's from the metadata server.
+    """
     if settings.VERTEX_ACCESS_TOKEN:
         return settings.VERTEX_ACCESS_TOKEN
     if _vertex_token["value"] and _vertex_token["expires"] > time.time() + 60:
         return _vertex_token["value"]
     try:
-        response = await client.get(_METADATA_SA_URL, headers={"Metadata-Flavor": "Google"}, timeout=3.0)
+        if settings.VERTEX_CREDENTIALS_FILE:
+            # A few hundred bytes, read once an hour at most: not worth a thread hop.
+            creds = json.loads(Path(settings.VERTEX_CREDENTIALS_FILE).read_text(encoding="utf-8"))
+            response = await client.post(_OAUTH_TOKEN_URL, timeout=10.0, data={
+                "grant_type": "refresh_token", "refresh_token": creds["refresh_token"],
+                "client_id": creds["client_id"], "client_secret": creds["client_secret"],
+            })
+        else:
+            response = await client.get(_METADATA_SA_URL, headers={"Metadata-Flavor": "Google"}, timeout=3.0)
         body = response.json() if response.status_code == 200 else {}
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError, OSError, KeyError):
         return None
     if not body.get("access_token"):
         return None

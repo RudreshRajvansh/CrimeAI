@@ -41,6 +41,7 @@ BRIEF = {
 def key(monkeypatch):
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key-123")
     monkeypatch.setattr(settings, "GEMINI_MODEL", "gemini-test")
+    monkeypatch.setattr(settings, "VERTEX_PROJECT", "")  # no real Vertex calls from a developer's .env
 
 
 def _client(handler) -> httpx.AsyncClient:
@@ -85,8 +86,9 @@ async def test_sections_are_checked_against_the_fir_and_the_governing_code(key):
     assert brief["model"] == "gemini-test"
 
 
-async def test_switched_off_without_a_key(monkeypatch):
+async def test_switched_off_without_a_key_or_vertex_project(monkeypatch):
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(settings, "VERTEX_PROJECT", "")
     assert not gemini.enabled()
     with pytest.raises(ExternalServiceError):
         await gemini.case_brief(FIR, AFTER_BNS)
@@ -110,6 +112,7 @@ async def test_upstream_errors_surface_as_upstream_errors(key):
 
 
 async def test_a_rate_limited_key_hands_over_to_the_backup(monkeypatch):
+    monkeypatch.setattr(settings, "VERTEX_PROJECT", "")
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "primary-key, backup-key")
     used = []
 
@@ -126,6 +129,7 @@ async def test_a_rate_limited_key_hands_over_to_the_backup(monkeypatch):
 
 
 async def test_a_bad_request_is_not_retried_on_other_keys(monkeypatch):
+    monkeypatch.setattr(settings, "VERTEX_PROJECT", "")
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "primary-key,backup-key")
     used = []
 

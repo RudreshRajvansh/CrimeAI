@@ -7,7 +7,8 @@ import { useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { AutoResize } from '@/components/map/MapGuards'
-import type { HeatmapPoint, Crime, ClusterSummary } from '@/types'
+import CaseFocusLayer from '@/components/map/CaseFocusLayer'
+import type { HeatmapPoint, Crime, ClusterSummary, CaseMap } from '@/types'
 import { severityColor, crimeTypeLabel, formatDate, escapeHtml } from '@/utils'
 import 'leaflet/dist/leaflet.css'
 
@@ -34,6 +35,7 @@ interface CrimeMapProps {
   center?: [number, number]
   zoom?: number
   height?: string
+  focus?: CaseMap | null
 }
 
 export default function CrimeMap({
@@ -47,6 +49,7 @@ export default function CrimeMap({
   center = DEFAULT_CENTER,
   zoom = DEFAULT_ZOOM,
   height = '100%',
+  focus = null,
 }: CrimeMapProps) {
   return (
     <MapContainer
@@ -69,6 +72,7 @@ export default function CrimeMap({
         showClusters={showClusters}
         onMapClick={onMapClick}
       />
+      {focus && <CaseFocusLayer focus={focus} />}
     </MapContainer>
   )
 }

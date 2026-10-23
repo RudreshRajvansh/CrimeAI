@@ -107,3 +107,34 @@ async def test_upstream_errors_surface_as_upstream_errors(key):
     async with _client(lambda r: httpx.Response(200, json=reply)) as client:
         with pytest.raises(ExternalServiceError):
             await gemini.case_brief(FIR, AFTER_BNS, client=client)
+
+
+async def test_a_rate_limited_key_hands_over_to_the_backup(monkeypatch):
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "primary-key, backup-key")
+    used = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        used.append(request.headers.get("x-goog-api-key"))
+        if used[-1] == "primary-key":
+            return httpx.Response(429, json={"error": {"message": "quota"}})
+        return httpx.Response(200, json=_reply(BRIEF))
+
+    async with _client(handler) as client:
+        brief = await gemini.case_brief(FIR, AFTER_BNS, client=client)
+
+    assert used == ["primary-key", "backup-key"] and brief["summary"]
+
+
+async def test_a_bad_request_is_not_retried_on_other_keys(monkeypatch):
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "primary-key,backup-key")
+    used = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        used.append(request.headers.get("x-goog-api-key"))
+        return httpx.Response(400, json={"error": {"message": "bad"}})
+
+    async with _client(handler) as client:
+        with pytest.raises(ExternalServiceError):
+            await gemini.case_brief(FIR, AFTER_BNS, client=client)
+
+    assert used == ["primary-key"]

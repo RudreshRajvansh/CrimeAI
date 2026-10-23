@@ -1,10 +1,13 @@
 import { useState, useCallback } from 'react'
-import { Layers, Filter, Download, Target } from 'lucide-react'
+import { Layers, Filter, Download, Target, Link2, X } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import CrimeMap from '@/components/map/CrimeMap'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useHeatmap, useCrimeList } from '@/hooks/useCrimes'
 import { mlApi, crimesApi } from '@/services'
+import { insightApi } from '@/services/insight'
+import { MATCH_STYLE } from '@/components/map/CaseFocusLayer'
 import { cn, crimeTypeLabel } from '@/utils'
 import { CRIME_TYPES } from '@/lib/palette'
 
@@ -16,6 +19,13 @@ export default function CrimeMapPage() {
   const [selectedType, setSelectedType] = useState<string>('')
   const [clickedLocation, setClickedLocation] = useState<{lat: number; lng: number} | null>(null)
   const [showFilters, setShowFilters] = useState(false)
+  const [params, setParams] = useSearchParams()
+  const focusId = params.get('focus')
+  const { data: focus } = useQuery({
+    queryKey: ['case-map', focusId],
+    queryFn: () => insightApi.caseMap(focusId!),
+    enabled: !!focusId,
+  })
 
   const { data: heatmapData, isLoading: heatLoading } = useHeatmap(
     selectedType ? { crime_type: selectedType } : undefined
@@ -149,11 +159,51 @@ export default function CrimeMapPage() {
           showClusters={activeLayers.has('clusters')}
           onMapClick={handleMapClick}
           height="100%"
+          focus={focusId ? focus ?? null : null}
         />
       </div>
 
+      {/* Side panel: one case and what it matches */}
+      {focusId && focus && (
+        <div className="w-80 border-l border-border-default bg-bg-secondary flex flex-col flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+            <div className="flex items-center gap-2">
+              <Link2 size={14} className="text-accent-purple" />
+              <span className="text-sm font-medium">Case matches</span>
+            </div>
+            <button onClick={() => setParams({})} className="text-text-muted hover:text-text-primary" aria-label="Close"><X size={14} /></button>
+          </div>
+          <div className="px-4 py-3 border-b border-border-subtle">
+            <p className="text-xs font-semibold text-text-primary">{crimeTypeLabel(focus.case.crime_type)} · {focus.case.label}</p>
+            <p className="text-2xs text-text-muted">{focus.case.location_name ?? focus.case.district ?? 'Unknown place'}</p>
+            <div className="mt-2 grid grid-cols-3 gap-1 text-center">
+              {(['identifier', 'series', 'modus_operandi'] as const).map((k) => (
+                <div key={k} className="rounded bg-bg-tertiary px-1 py-1.5">
+                  <p className="text-base font-bold" style={{ color: MATCH_STYLE[k].color }}>{focus.counts[k]}</p>
+                  <p className="text-2xs leading-tight text-text-muted">{MATCH_STYLE[k].label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-border-subtle">
+            {focus.matches.length === 0 && <p className="p-4 text-xs text-text-muted">No matching cases on record yet.</p>}
+            {focus.matches.map((m) => (
+              <Link key={m.id} to={`/cases/${m.id}`} className="block px-4 py-3 hover:bg-bg-hover">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-text-primary">{crimeTypeLabel(m.crime_type)}</p>
+                  <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: MATCH_STYLE[m.reason].color }} />
+                </div>
+                <p className="text-2xs text-text-muted mt-0.5">{m.district ?? '—'} · {m.label}</p>
+                {m.shared.map((s) => <p key={s} className="text-2xs font-mono text-severity-high">{s}</p>)}
+                {m.similarity != null && <p className="text-2xs text-accent-blue">{Math.round(m.similarity * 100)}% alike</p>}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Side panel: nearby crimes on click */}
-      {clickedLocation && (
+      {clickedLocation && !focusId && (
         <div className="w-72 border-l border-border-default bg-bg-secondary flex flex-col flex-shrink-0">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
             <div className="flex items-center gap-2">

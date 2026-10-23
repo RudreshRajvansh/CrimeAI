@@ -232,6 +232,31 @@ export interface LegalAnalysis {
   disclaimer: string
 }
 
+export interface CaseMapPoint {
+  id: string
+  label: string
+  crime_type: string
+  district: string | null
+  severity: number
+  occurred_at: string | null
+  series_id: string | null
+  lat: number
+  lng: number
+}
+
+export interface CaseMatch extends CaseMapPoint {
+  shared: string[]
+  same_series: boolean
+  similarity: number | null
+  reason: 'identifier' | 'series' | 'modus_operandi'
+}
+
+export interface CaseMap {
+  case: CaseMapPoint & { location_name: string | null }
+  matches: CaseMatch[]
+  counts: { identifier: number; series: number; modus_operandi: number }
+}
+
 export interface FirContext {
   crime_type: string
   confidence: number

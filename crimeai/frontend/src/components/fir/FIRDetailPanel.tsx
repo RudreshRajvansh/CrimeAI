@@ -96,6 +96,12 @@ export default function FIRDetailPanel({ firId, onClose }: { firId: string; onCl
                 )}
               </section>
 
+              {fir.crime_id && (
+                <Link to={`/crimes?focus=${fir.crime_id}`} className="btn-secondary w-full justify-center text-xs">
+                  Show case and its matches on the map
+                </Link>
+              )}
+
               {entities?.context && <ContextPanel context={entities.context} rulesCrimeType={entities.rules_crime_type} />}
 
               {fir.text && <FirGeminiSection firId={fir.id} cached={entities?.gemini} />}

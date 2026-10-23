@@ -1,5 +1,6 @@
 import { api } from './api'
 import type {
+  CaseMap,
   FreezePacket,
   Dossier,
   GraphPayload,
@@ -17,6 +18,7 @@ export const insightApi = {
     api.get<GraphPayload>('/graph/neighbourhood', { params: { node, depth } }).then((r) => r.data),
   freezePacket: (entityId: string) =>
     api.get<FreezePacket>(`/graph/entities/${entityId}/freeze-packet`).then((r) => r.data),
+  caseMap: (crimeId: string) => api.get<CaseMap>(`/graph/case-map/${crimeId}`).then((r) => r.data),
   graphSearch: (q: string) => api.get<GraphNode[]>('/graph/search', { params: { q } }).then((r) => r.data),
   dossier: (crimeId: string) => api.get<Dossier>(`/crimes/${crimeId}/dossier`).then((r) => r.data),
   temporalMatrix: (params?: { crime_type?: string; district?: string; days?: number }) =>

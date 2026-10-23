@@ -117,6 +117,8 @@ class Settings(BaseSettings):
     # PII-redacted text is sent. Model per https://ai.google.dev/gemini-api/docs/models.
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    # Reading handwriting needs the larger model: the lite one guesses at faint words.
+    GEMINI_OCR_MODEL: str = "gemini-3.5-flash"
     GEMINI_TIMEOUT_SECONDS: float = 30.0
 
     LOG_LEVEL: str = "INFO"

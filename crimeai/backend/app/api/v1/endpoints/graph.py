@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies.auth import Analyst, Officer
-from app.core.exceptions import ValidationError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.services import entity_graph
@@ -35,6 +35,14 @@ async def graph_neighbourhood(
         return await entity_graph.neighbourhood(db, node, depth)
     except ValueError as exc:
         raise ValidationError("Invalid node id") from exc
+
+
+@router.get("/case-map/{crime_id}", summary="One case and every case it matches, placed for the map")
+async def case_map(crime_id: uuid.UUID, user: Analyst, db: DbDep) -> dict:
+    result = await entity_graph.case_map(db, crime_id)
+    if not result:
+        raise NotFoundError("Case not found")
+    return result
 
 
 @router.get("/search", summary="Find a vehicle number, phone number or UPI ID in the link graph")

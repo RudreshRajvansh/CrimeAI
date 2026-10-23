@@ -5,6 +5,7 @@ Investigating officers see the original narrative. Analysts see the PII-redacted
 copy: they need the modus operandi, not the complainant's Aadhaar number.
 """
 
+import re
 import uuid
 from dataclasses import asdict
 from datetime import datetime
@@ -26,7 +27,7 @@ from app.models.fir import FIRReport
 from app.nlp import gemini
 from app.nlp.multilingual import analyse
 from app.repositories.fir_repository import FIRRepository
-from app.schemas.fir import FIR_NUMBER_PATTERN, FIRCreateRequest, FIRListResponse, FIRResponse
+from app.schemas.fir import FIR_NUMBER_PATTERN, FIRCreateRequest, FIRListResponse, FIRResponse, normalise_fir_number
 from app.services.audit_service import record_audit
 from app.services.nlp_service import NLPService
 from app.services.storage import load_document
@@ -96,11 +97,14 @@ async def upload_fir(
     request: Request,
     user: Officer,
     service: ServiceDep,
-    fir_number: Annotated[str, Form(pattern=FIR_NUMBER_PATTERN)],
+    fir_number: Annotated[str, Form(max_length=200)],
     file: Annotated[UploadFile, File()],
     crime_id: Annotated[uuid.UUID | None, Form()] = None,
     incident_date: Annotated[datetime | None, Form()] = None,
 ) -> FIRResponse:
+    fir_number = normalise_fir_number(fir_number)
+    if not re.fullmatch(FIR_NUMBER_PATTERN, fir_number):
+        raise ValidationError("FIR number needs at least 3 letters or digits, e.g. 14/2018 or PS-0014-2018")
     data = await read_capped(file, settings.MAX_UPLOAD_BYTES)
     fir = await service.submit_document(
         fir_number, file.filename, data, user.user_id, crime_id=crime_id, incident_date=incident_date

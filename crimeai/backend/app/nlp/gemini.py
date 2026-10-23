@@ -61,8 +61,37 @@ _SCHEMA: dict[str, Any] = {
 }
 
 
+# A key that is rate-limited, revoked or out of quota hands the request to the next one.
+_FAILOVER_STATUSES = {401, 402, 403, 429, 500, 502, 503, 504}
+
+
+def _keys() -> list[str]:
+    """GEMINI_API_KEY holds one key, or several separated by commas: the first is primary, the rest are backups."""
+    return [k.strip() for k in settings.GEMINI_API_KEY.split(",") if k.strip()]
+
+
 def enabled() -> bool:
-    return bool(settings.GEMINI_API_KEY)
+    return bool(_keys())
+
+
+async def _send(client: httpx.AsyncClient, payload: dict[str, Any], models: tuple[str, ...] = ()) -> httpx.Response:
+    """
+    POST with each key in turn, then each fallback model, until one answers; the caller sees the last failure.
+    """
+    attempts = [(m, k) for m in (models or (settings.GEMINI_MODEL,)) for k in _keys()]
+    for i, (model, key) in enumerate(attempts):
+        url = _ENDPOINT.format(model=model)
+        last = i == len(attempts) - 1
+        try:
+            # In a header, not the URL: query strings end up in proxy and access logs.
+            response = await client.post(url, json=payload, headers={"x-goog-api-key": key})
+        except httpx.HTTPError:
+            if last:
+                raise
+            continue
+        if response.status_code not in _FAILOVER_STATUSES or last:
+            return response
+    raise httpx.HTTPError("no API key configured")
 
 
 def _instruction(code: str) -> str:
@@ -170,12 +199,7 @@ async def case_brief(
     owned = client is None
     client = client or httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS)
     try:
-        response = await client.post(
-            _ENDPOINT.format(model=settings.GEMINI_MODEL),
-            json=payload,
-            # In a header, not the URL: query strings end up in proxy and access logs.
-            headers={"x-goog-api-key": settings.GEMINI_API_KEY},
-        )
+        response = await _send(client, payload)
     except httpx.HTTPError as exc:
         raise ExternalServiceError("Gemini could not be reached", detail=type(exc).__name__) from exc
     finally:
@@ -216,10 +240,16 @@ async def case_brief(
 _OCR_TYPES = {"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif", "application/pdf"}
 _OCR_INSTRUCTION = (
     "You are an OCR engine for Indian police First Information Report (FIR) forms. Transcribe ALL text in the "
-    "image exactly as written, printed and handwritten, in its original script and language (Hindi, Marathi, "
-    "Bengali, Tamil, English or any other). Do not translate, summarise, correct or add anything. Keep the reading "
-    "order of the form: field label, then the value written next to it, one field per line. Write an illegible "
-    "word as [?]. Return only the transcription."
+    "image exactly as written, printed and handwritten. A single FIR often mixes scripts and languages, for "
+    "example an English printed form filled in by hand in Bengali, Hindi or English, or a Bengali narrative with "
+    "English names, sections and numbers: write every word in the script it is written in (Bengali in Bengali "
+    "script, Devanagari in Devanagari, Latin in Latin) and never transliterate or translate. Bengali and Assamese "
+    "share a script; keep the letters as written. Copy numbers, dates, section numbers (e.g. 341/325/354B), "
+    "vehicle and phone numbers digit by digit, keeping Bengali or Devanagari digits as written. Do not guess: "
+    "never fill a blank field, and write a word you cannot read as [?]. Keep the reading order of the form: "
+    "field label, then the value written next to it, one field per line; then the complaint narrative in its "
+    "own paragraphs. Ignore stamps, signatures and watermarks unless they contain readable text. Return only the "
+    "transcription."
 )
 
 
@@ -235,13 +265,12 @@ async def read_document(data: bytes, mime_type: str, *, client: httpx.AsyncClien
             {"inlineData": {"mimeType": mime_type, "data": base64.b64encode(data).decode()}},
             {"text": "Transcribe this FIR."},
         ]}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 8192},
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 8192, "mediaResolution": "MEDIA_RESOLUTION_HIGH"},
     }
     owned = client is None
     client = client or httpx.AsyncClient(timeout=max(settings.GEMINI_TIMEOUT_SECONDS, 90.0))
     try:
-        response = await client.post(_ENDPOINT.format(model=settings.GEMINI_MODEL), json=payload,
-                                      headers={"x-goog-api-key": settings.GEMINI_API_KEY})
+        response = await _send(client, payload, (settings.GEMINI_OCR_MODEL, settings.GEMINI_MODEL))
     except httpx.HTTPError as exc:
         raise ExternalServiceError("Handwriting OCR could not be reached", detail=type(exc).__name__) from exc
     finally:
@@ -291,9 +320,15 @@ _CONTEXT_SCHEMA: dict[str, Any] = {
         "injury": {"type": "BOOLEAN"},
         "weapons": {"type": "ARRAY", "items": _STR},
         "red_flags": {"type": "ARRAY", "items": _STR},
+        "place": _STR,
+        "district": _STR,
+        "city": _STR,
+        "latitude": {"type": "NUMBER"},
+        "longitude": {"type": "NUMBER"},
     },
     "required": ["crime_type", "confidence", "severity", "reasoning", "people", "timeline", "motive",
-                 "relationship", "premeditated", "violence", "injury", "weapons", "red_flags"],
+                 "relationship", "premeditated", "violence", "injury", "weapons", "red_flags", "place",
+                 "district", "city", "latitude", "longitude"],
 }
 _CONTEXT_INSTRUCTION = (
     "You read Indian police FIRs in any Indian language and explain what happened, in English. Personal "
@@ -305,7 +340,9 @@ _CONTEXT_INSTRUCTION = (
     "a short detail. timeline is up to six short events in order. motive and relationship (between accused and "
     "victim) are short phrases, or an empty string when the FIR is silent. red_flags are up to four investigative "
     "signals the text actually supports, such as an organised gang, a repeat pattern, an insider or a threat to a "
-    "witness."
+    "witness. place, district and city are where the offence happened, in English, as the FIR names them (the "
+    "police station's area when nothing else is given), or an empty string. latitude and longitude are the "
+    "approximate coordinates of that place in India, or 0 when it cannot be placed."
 )
 
 
@@ -327,8 +364,7 @@ async def understand(text: str, *, client: httpx.AsyncClient | None = None) -> d
     owned = client is None
     client = client or httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS)
     try:
-        response = await client.post(_ENDPOINT.format(model=settings.GEMINI_MODEL), json=payload,
-                                      headers={"x-goog-api-key": settings.GEMINI_API_KEY})
+        response = await _send(client, payload)
     except httpx.HTTPError as exc:
         raise ExternalServiceError("Context model could not be reached", detail=type(exc).__name__) from exc
     finally:
@@ -359,4 +395,18 @@ async def understand(text: str, *, client: httpx.AsyncClient | None = None) -> d
         "injury": bool(data.get("injury")),
         "weapons": _strings(data.get("weapons"), 5),
         "red_flags": _strings(data.get("red_flags"), 4),
+        "place": str(data.get("place") or "").strip(),
+        "district": str(data.get("district") or "").strip(),
+        "city": str(data.get("city") or "").strip(),
+        "latitude": _coordinate(data.get("latitude"), 6.0, 37.5),
+        "longitude": _coordinate(data.get("longitude"), 68.0, 97.5),
     }
+
+
+def _coordinate(value: Any, low: float, high: float) -> float | None:
+    """A coordinate inside India's bounding box, or None: a model's 0 or a point abroad is no location."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(number, 5) if low <= number <= high else None

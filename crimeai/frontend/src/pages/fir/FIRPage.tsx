@@ -10,6 +10,7 @@ import { GeminiBriefCard, useGeminiStatus } from '@/components/fir/GeminiBrief'
 import CameraScanDialog from '@/components/fir/CameraScanDialog'
 import RecordMatchPanel from '@/components/fir/RecordMatchPanel'
 import ContextPanel from '@/components/fir/ContextPanel'
+import CasePlacedCard from '@/components/fir/CasePlacedCard'
 import { DICTATION_LANGUAGES, useDictation } from '@/hooks/useDictation'
 import { useAuthStore } from '@/store/auth'
 import { timeAgo, cn } from '@/utils'
@@ -29,6 +30,7 @@ export default function FIRPage() {
   const gemini = useGeminiStatus()
   const [scanUrl, setScanUrl] = useState<string | null>(null)
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [tracked, setTracked] = useState<{ id: string; number: string } | null>(null)
   const [linkResult, setLinkResult] = useState<LinkCheck | null>(null)
   const [dictLang, setDictLang] = useState<string>('hi-IN')
   const dictation = useDictation((spoken) => setRawText((prev) => (prev ? `${prev.trimEnd()} ${spoken}` : spoken)))
@@ -44,6 +46,8 @@ export default function FIRPage() {
     onSuccess: (data) => {
       setRawText(data.text)
       setFile(null)
+      const scanned = firNumberFrom(data.text)
+      if (scanned) setFirNumber((current) => current || scanned)
       toast.success(`FIR read: ${data.chars} characters`)
       analyseAll(data.text)
     },
@@ -70,8 +74,9 @@ export default function FIRPage() {
         ? firApi.upload(firNumber, file, incident_date)
         : firApi.submit({ fir_number: firNumber, raw_text: rawText, incident_date })
     },
-    onSuccess: () => {
-      toast.success(`FIR ${firNumber} received. Analysis queued.`)
+    onSuccess: (saved) => {
+      toast.success(`FIR ${saved.fir_number} received. Analysis queued.`)
+      setTracked({ id: saved.id, number: saved.fir_number })
       qc.invalidateQueries({ queryKey: ['fir'] })
       setFirNumber('')
       setRawText('')
@@ -147,7 +152,7 @@ export default function FIRPage() {
                 className="input"
                 placeholder="e.g. FIR-2024-DL-001"
                 value={firNumber}
-                onChange={(e) => setFirNumber(e.target.value)}
+                onChange={(e) => setFirNumber(e.target.value.replace(/[^A-Za-z0-9/\-_.]+/g, '-'))}
               />
             </div>
 
@@ -292,6 +297,7 @@ export default function FIRPage() {
           {/* NLP Results panel */}
           <div className="card p-5">
             <h3 className="text-sm font-semibold text-text-primary mb-3">NLP Extraction Results</h3>
+            {tracked && <div className="mb-4"><CasePlacedCard key={tracked.id} firId={tracked.id} firNumber={tracked.number} /></div>}
             {analyzeMutation.isPending && !linkResult && !linkMutation.isPending ? (
               <PageLoader label="Analysing text…" />
             ) : analysisResult || geminiResult || linkResult || linkMutation.isPending || geminiMutation.isPending ? (
@@ -396,6 +402,12 @@ function NLPStatusBadge({ status }: { status: string }) {
       {config.icon}{status}
     </span>
   )
+}
+
+// "FIR No. 14/18" on a scanned form -> "FIR-14/18", the shape the FIR number field accepts.
+function firNumberFrom(text: string): string | null {
+  const m = text.match(/FIR\s*No\.?\s*[:-]?\s*([0-9]{1,6}\s*[/-]\s*[0-9]{2,4})/i)
+  return m ? `FIR-${m[1].replace(/\s+/g, '')}` : null
 }
 
 function EntityResultPanel({ entities }: { entities: ExtractedEntities }) {

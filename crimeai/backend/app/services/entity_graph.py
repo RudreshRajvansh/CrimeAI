@@ -351,3 +351,60 @@ async def entities_for_crime(db: AsyncSession, crime_id: uuid.UUID) -> list[dict
         select(Entity).join(EntityMention, EntityMention.entity_id == Entity.id).where(EntityMention.crime_id == crime_id)
     )).scalars().all()
     return [_entity_node(e) for e in rows]
+
+
+async def case_map(db: AsyncSession, crime_id: uuid.UUID, similar: int = 8) -> dict[str, Any]:
+    """
+    One case and what it matches, for the map: cases sharing a phone, UPI ID, account or vehicle (with the
+    shared identifiers), cases in the same series, and cases whose narrative reads alike (embedding distance).
+    """
+    from app.ml.similarity.crime_similarity import find_similar_crimes
+
+    # Explicit columns: the embedding is deferred on the model, and a lazy load cannot run here.
+    focus = (await db.execute(
+        select(Crime.id, Crime.case_number, Crime.crime_type, Crime.district, Crime.severity, Crime.occurred_at,
+               Crime.series_id, Crime.latitude, Crime.longitude, Crime.location_name, Crime.embedding)
+        .where(Crime.id == crime_id)
+    )).one_or_none()
+    if focus is None:
+        return {}
+    shared: dict[uuid.UUID, list[str]] = {}
+    for entity in (await db.execute(
+        select(Entity).join(EntityMention, EntityMention.entity_id == Entity.id).where(EntityMention.crime_id == crime_id)
+    )).scalars().all():
+        for other in (await db.execute(
+            select(EntityMention.crime_id).where(EntityMention.entity_id == entity.id, EntityMention.crime_id != crime_id)
+        )).scalars().all():
+            shared.setdefault(other, []).append(f"{entity.kind}: {entity.label}")
+    series = set((await db.execute(
+        select(Crime.id).where(Crime.series_id == focus.series_id, Crime.id != crime_id)
+    )).scalars().all()) if focus.series_id else set()
+    alike = await find_similar_crimes(db, list(focus.embedding), top_k=similar, min_similarity=0.55,
+                                      exclude_id=crime_id) if focus.embedding is not None else []
+    score = {uuid.UUID(a["id"]): a["similarity"] for a in alike}
+
+    ids = set(shared) | series | set(score)
+    rows = (await db.execute(
+        select(Crime.id, Crime.case_number, Crime.crime_type, Crime.district, Crime.severity, Crime.occurred_at,
+               Crime.latitude, Crime.longitude, Crime.series_id).where(Crime.id.in_(ids))
+    )).all() if ids else []
+    matches = sorted((
+        {
+            **{k: v for k, v in _crime_node(r).items() if k not in ("id", "type")},
+            "id": str(r.id),
+            "shared": shared.get(r.id, []),
+            "same_series": r.id in series,
+            "similarity": score.get(r.id),
+            "reason": "identifier" if r.id in shared else "series" if r.id in series else "modus_operandi",
+        } for r in rows
+    ), key=lambda m: (m["reason"] != "identifier", m["reason"] != "series", -(m["similarity"] or 0)))
+    return {
+        "case": {**{k: v for k, v in _crime_node(focus).items() if k not in ("id", "type")}, "id": str(focus.id),
+                 "location_name": focus.location_name},
+        "matches": matches,
+        "counts": {
+            "identifier": sum(m["reason"] == "identifier" for m in matches),
+            "series": sum(m["reason"] == "series" for m in matches),
+            "modus_operandi": sum(m["reason"] == "modus_operandi" for m in matches),
+        },
+    }

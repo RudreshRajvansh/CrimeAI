@@ -1,6 +1,7 @@
 """Schemas for FIR intake and results."""
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -8,6 +9,12 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 FIR_NUMBER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9/\-_.]{2,49}$"
+_FIR_NUMBER_JUNK = re.compile(r"[^A-Za-z0-9/\-_.]+")
+
+
+def normalise_fir_number(value: str) -> str:
+    """'FIR No: 14/18' -> 'FIR-No-14/18': spaces and stray marks become hyphens, so a typed number is accepted."""
+    return _FIR_NUMBER_JUNK.sub("-", (value or "").strip()).strip("-/_.")[:50]
 
 
 class FIRCreateRequest(BaseModel):
@@ -15,6 +22,11 @@ class FIRCreateRequest(BaseModel):
     raw_text: str = Field(..., min_length=20, max_length=50000)
     crime_id: uuid.UUID | None = None
     incident_date: datetime | None = None
+
+    @field_validator("fir_number", mode="before")
+    @classmethod
+    def _tidy_number(cls, value: object) -> object:
+        return normalise_fir_number(value) if isinstance(value, str) else value
 
     @field_validator("incident_date")
     @classmethod

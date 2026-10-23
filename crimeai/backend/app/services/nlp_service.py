@@ -1,6 +1,7 @@
 """FIR intake and NLP orchestration."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from datetime import UTC, datetime
@@ -194,10 +195,16 @@ async def _with_context(entities: dict[str, Any], text: str) -> dict[str, Any]:
     """
     if not gemini.enabled() or len((text or "").strip()) < 20:
         return entities
-    try:
-        context = await gemini.understand(text)
-    except Exception as exc:
-        logger.warning("fir_context_failed", error=type(exc).__name__)
+    context = None
+    for attempt in range(2):
+        try:
+            context = await gemini.understand(text)
+            break
+        except Exception as exc:
+            # A burst of quota or overload errors usually clears within seconds; try once more before giving up.
+            logger.warning("fir_context_failed", error=type(exc).__name__, attempt=attempt + 1)
+            await asyncio.sleep(3)
+    if context is None:
         return entities
     merged = {**entities, "context": context}
     rules_confidence = float(entities.get("crime_type_confidence") or 0)

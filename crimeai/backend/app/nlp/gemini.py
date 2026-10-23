@@ -386,8 +386,9 @@ _CONTEXT_INSTRUCTION = (
     "a short detail. timeline is up to six short events in order. motive and relationship (between accused and "
     "victim) are short phrases, or an empty string when the FIR is silent. red_flags are up to four investigative "
     "signals the text actually supports, such as an organised gang, a repeat pattern, an insider or a threat to a "
-    "witness. place, district and city are where the offence happened, in English, as the FIR names them (the "
-    "police station's area when nothing else is given), or an empty string. latitude and longitude are the "
+    "witness. place, district and city are where the offence happened, in English (the police station's area when "
+    "nothing else is given), or an empty string; district is the district's full official name, never an "
+    "abbreviation (North 24 Parganas, not 24 Pgs (N)). latitude and longitude are the "
     "approximate coordinates of that place in India, or 0 when it cannot be placed."
 )
 
